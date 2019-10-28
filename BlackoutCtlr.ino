@@ -7,14 +7,16 @@
 
 #define NOP_PIN	 										   4
 #define RED_LED											   5
-#define GREEN_LED  									   6
-#define SIM800_SLEEP_PIN						   7
+#define GREEN_LED  										   6
+#define SIM800_SLEEP_PIN								   7
 
-#define MAX_TELEPHONE_NUMBER	       1
-#define N_SAMPLE										100
+#define MAX_TELEPHONE_NUMBER	     					   1
+#define N_SAMPLE										 100
 
-#define SIM_SLEEP_ON	      						LOW
-#define SIM_SLEEP_OFF      						HIGH
+#define SIM_SLEEP_ON	      						     LOW
+#define SIM_SLEEP_OFF      					   			HIGH
+
+#define PWM_PERCENT(Perc)								((int)(Perc * 255 / 100))
 
 
  //  RX  10       >>>   TX    
@@ -48,11 +50,19 @@ String SMSText = "BLACKOUT AVVENUTO";
 
 
 
-void BlinkLed(int WichLed, int Delay, int AddedHighDelay = 0, int AddedLowDelay = 0)
+void BlinkLed(int WichLed, int MaxPwmValue, int Delay, int AddedHighDelay = 0, int AddedLowDelay = 0)
 {
-	digitalWrite(WichLed, HIGH);
+	for(int i = 0; i < MaxPwmValue; i++)
+	{
+		analogWrite(WichLed, i);
+		delayMicroseconds(100);
+	}
 	delay(Delay + AddedHighDelay);
-	digitalWrite(WichLed, LOW);
+	for(int i = MaxPwmValue; i >= 0; i--)
+	{
+		analogWrite(WichLed, i);
+		delayMicroseconds(100);	
+	}
 	delay(Delay + AddedLowDelay);
 }
 
@@ -128,8 +138,8 @@ void setup()
 	pinMode(GREEN_LED, OUTPUT);
 	pinMode(SIM800_SLEEP_PIN, OUTPUT);
 	
-	digitalWrite(GREEN_LED, LOW);
-	digitalWrite(RED_LED, LOW);
+	analogWrite(GREEN_LED, PWM_PERCENT(0));
+	analogWrite(RED_LED, PWM_PERCENT(0));
 	digitalWrite(SIM800_SLEEP_PIN, SIM_SLEEP_OFF);
 }
 
@@ -146,11 +156,11 @@ void loop()
 		if(NoOpLedTimer.hasPassed(2000, true))
 		{
 			for(int i  = 0; i < 5; i++)
-				BlinkLed(GREEN_LED, 250);
+				BlinkLed(GREEN_LED, PWM_PERCENT(100), 250);
 		}
 		else
-			digitalWrite(GREEN_LED, LOW);
-		digitalWrite(RED_LED, LOW);
+			analogWrite(GREEN_LED, PWM_PERCENT(0));
+		analogWrite(RED_LED, PWM_PERCENT(0));
 	}
 	else
 	{
@@ -169,14 +179,14 @@ void loop()
 				else
 					TimerSms = 2;
 			}
-			digitalWrite(GREEN_LED, LOW);
-			BlinkLed(RED_LED, 250);
+			analogWrite(GREEN_LED, PWM_PERCENT(0));
+			BlinkLed(RED_LED, PWM_PERCENT(100), 250);
 		}	
 		else		
 		{
 			SendAlarmMessageTimer.restart();
-			BlinkLed(GREEN_LED, 1000, 500, 0);
-			digitalWrite(RED_LED, LOW);
+			BlinkLed(GREEN_LED, PWM_PERCENT(100),1000, 500, 0);
+			analogWrite(RED_LED, PWM_PERCENT(0));
 		}
 	}
 

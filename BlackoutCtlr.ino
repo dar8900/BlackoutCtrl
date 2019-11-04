@@ -139,6 +139,7 @@ bool StopSmsSend()
 void ChangeOpMode()
 {
 	NoOperating = !NoOperating;
+	BlinkLed(BUTTON_PRESS_PIN);
 }
 
 void setup()

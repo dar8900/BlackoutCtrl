@@ -5,10 +5,12 @@
 #include <Chrono.h>
 #include <LowPower.h>
 
-#define NOP_PIN	 										   4
+#define NOP_PIN	 										   3
 #define RED_LED											   5
 #define GREEN_LED  										   6
 #define SIM800_SLEEP_PIN								   7
+
+#define BUTTON_PRESS_PIN								   8
 
 #define MAX_TELEPHONE_NUMBER	     					   1
 #define N_SAMPLE										 100
@@ -38,7 +40,7 @@ Chrono SendAlarmMessageTimer(Chrono::SECONDS);
 Chrono NoOpLedTimer;
 int TimerSms = 2;
 bool StopSms;
-bool NoOperating;
+volatile bool NoOperating = true;
 
 
 const char *TelephoneNumber [MAX_TELEPHONE_NUMBER] = 
@@ -50,7 +52,7 @@ String SMSText = "BLACKOUT AVVENUTO";
 
 
 
-void BlinkLed(int WichLed, int MaxPwmValue, int Delay, int AddedHighDelay = 0, int AddedLowDelay = 0)
+void BlinkFadedLed(int WichLed, int MaxPwmValue, int Delay, int AddedHighDelay = 0, int AddedLowDelay = 0)
 {
 	for(int i = 0; i < MaxPwmValue; i++)
 	{
@@ -66,6 +68,13 @@ void BlinkLed(int WichLed, int MaxPwmValue, int Delay, int AddedHighDelay = 0, i
 	delay(Delay + AddedLowDelay);
 }
 
+void BlinkLed(int WichLed)
+{
+	digitalWrite(WichLed, HIGH);
+	delayMicroseconds(5000);
+	digitalWrite(WichLed, LOW);
+	delayMicroseconds(5000);	
+}
 
 String GetTime()
 {
@@ -127,28 +136,31 @@ bool StopSmsSend()
 		return true;
 }
 
+void ChangeOpMode()
+{
+	NoOperating = !NoOperating;
+}
+
 void setup()
 {
 	digitalWrite(SIM800_SLEEP_PIN, SIM_SLEEP_OFF);
 	Serial.begin(9600);
 	Sim800l.begin(); 
 	Sim800l.updateRtc(2);  // UTC Roma
-	pinMode(NOP_PIN, INPUT);
+	attachInterrupt(digitalPinToInterrupt(NOP_PIN), ChangeOpMode, RISING); 
 	pinMode(RED_LED, OUTPUT);
 	pinMode(GREEN_LED, OUTPUT);
 	pinMode(SIM800_SLEEP_PIN, OUTPUT);
+	pinMode(BUTTON_PRESS_PIN, OUTPUT);
 	
 	analogWrite(GREEN_LED, PWM_PERCENT(0));
 	analogWrite(RED_LED, PWM_PERCENT(0));
 	digitalWrite(SIM800_SLEEP_PIN, SIM_SLEEP_OFF);
+	digitalWrite(BUTTON_PRESS_PIN, LOW);
 }
 
 void loop()
 {
-	if(digitalRead(NOP_PIN) == HIGH)
-	{
-		NoOperating = !NoOperating;
-	}
 	if(NoOperating)
 	{
 		
@@ -156,7 +168,7 @@ void loop()
 		if(NoOpLedTimer.hasPassed(2000, true))
 		{
 			for(int i  = 0; i < 5; i++)
-				BlinkLed(GREEN_LED, PWM_PERCENT(100), 250);
+				BlinkFadedLed(GREEN_LED, PWM_PERCENT(100), 250);
 		}
 		else
 			analogWrite(GREEN_LED, PWM_PERCENT(0));
@@ -180,12 +192,12 @@ void loop()
 					TimerSms = 2;
 			}
 			analogWrite(GREEN_LED, PWM_PERCENT(0));
-			BlinkLed(RED_LED, PWM_PERCENT(100), 250);
+			BlinkFadedLed(RED_LED, PWM_PERCENT(100), 250);
 		}	
 		else		
 		{
 			SendAlarmMessageTimer.restart();
-			BlinkLed(GREEN_LED, PWM_PERCENT(100),1000, 500, 0);
+			BlinkFadedLed(GREEN_LED, PWM_PERCENT(100),1000, 500, 0);
 			analogWrite(RED_LED, PWM_PERCENT(0));
 		}
 	}

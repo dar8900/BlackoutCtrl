@@ -20,9 +20,10 @@
 
 #define PWM_PERCENT(Perc)								((int)(Perc * 255 / 100))
 
+#define TIMEOUT_DELAY(Sec, Cnt)								(Sec * 1000 / Cnt)
 
  //  RX  10       >>>   TX    
- //  TX   11       >>>   RX ci vuole un partitore di tensione da 5v a 3.3v
+ //  TX  11       >>>   RX ci vuole un partitore di tensione da 5v a 3.3v
 
 typedef struct
 {
@@ -54,16 +55,16 @@ String SMSText = "BLACKOUT AVVENUTO";
 
 void BlinkFadedLed(int WichLed, int MaxPwmValue, int Delay, int AddedHighDelay = 0, int AddedLowDelay = 0)
 {
-	for(int i = 0; i < MaxPwmValue; i++)
+	for(int i = 0; i <= MaxPwmValue; i++)
 	{
 		analogWrite(WichLed, i);
-		delayMicroseconds(100);
+		delayMicroseconds(392);
 	}
 	delay(Delay + AddedHighDelay);
 	for(int i = MaxPwmValue; i >= 0; i--)
 	{
 		analogWrite(WichLed, i);
-		delayMicroseconds(100);	
+		delayMicroseconds(392);	
 	}
 	delay(Delay + AddedLowDelay);
 }
@@ -144,6 +145,7 @@ void ChangeOpMode()
 
 void setup()
 {
+	int TestConnTimeOut = 200, PwmLedTestConn = 100;
 	digitalWrite(SIM800_SLEEP_PIN, SIM_SLEEP_OFF);
 	Serial.begin(9600);
 	Sim800l.begin(); 
@@ -158,6 +160,24 @@ void setup()
 	analogWrite(RED_LED, PWM_PERCENT(0));
 	digitalWrite(SIM800_SLEEP_PIN, SIM_SLEEP_OFF);
 	digitalWrite(BUTTON_PRESS_PIN, LOW);
+	while(1)
+	{
+		if(Sim800l.getSignalQuality() != "99")
+			break;
+		TestConnTimeOut--;
+		if(TestConnTimeOut == 0)
+		{
+			NoOperating = true;
+			break;
+		}
+		analogWrite(GREEN_LED, PWM_PERCENT(PwmLedTestConn));
+		analogWrite(RED_LED, PWM_PERCENT(PwmLedTestConn));
+		if(PwmLedTestConn > 0)
+			PwmLedTestConn--;
+		else
+			PwmLedTestConn = 100;
+		delay(TIMEOUT_DELAY(10, 200));
+	}
 }
 
 void loop()
@@ -204,3 +224,45 @@ void loop()
 	}
 
 }
+
+/*
+String Sim800l::getSignalQuality(){
+// Response
+// +CSQ: <rssi>,<ber>Parameters
+// <rssi>
+// 0 -115 dBm or less
+// 1 -111 dBm
+// 2...30 -110... -54 dBm
+// 31 -52 dBm or greater
+// 99 not known or not detectable
+// <ber> (in percent):
+// 0...7 As RXQUAL values in the table in GSM 05.08 [20]
+// subclause 7.2.4
+// 99 Not known or not detectable 
+
+  SIM.print (F("AT+CSQ\r\n"));
+  String SignalQualityStr = String(_readSerial()), RSSI = "";
+  char SQBuff[SignalQualityStr.length()];
+  SignalQualityStr.toCharArray(SQBuff, SignalQualityStr.length());
+  for(int i = 0; i < SignalQualityStr.length(); i++)
+  {
+    if(SQBuff[i - 1] == ':')
+    {
+      for(int j = i; j < SignalQualityStr.length(); j++)
+      {
+        if(SQBuff[j] != ',')
+          RSSI += SQBuff[j];
+        else
+          break;
+      }
+      break;
+    }
+    else
+    {
+      continue;
+    }
+  }
+  Serial.println(SignalQualityStr);
+  return RSSI;
+}
+*/

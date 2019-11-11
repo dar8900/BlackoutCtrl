@@ -1,9 +1,8 @@
 //Programma per il controllo dei blackout
 
-#include "Sim800l.h"
+#include <Sim800L.h>
 #include <SoftwareSerial.h>
 #include <Chrono.h>
-#include <LowPower.h>
 
 #define NOP_PIN	 										   3
 #define RED_LED											   5
@@ -12,18 +11,32 @@
 
 #define BUTTON_PRESS_PIN								   8
 
+#define RELAY_SWICH										   9
+
 #define MAX_TELEPHONE_NUMBER	     					   1
 #define N_SAMPLE										 100
-
-#define SIM_SLEEP_ON	      						     LOW
-#define SIM_SLEEP_OFF      					   			HIGH
 
 #define PWM_PERCENT(Perc)								((int)(Perc * 255 / 100))
 
 #define TIMEOUT_DELAY(Sec, Cnt)								(Sec * 1000 / Cnt)
 
+#define POWER_DELAY(Hour)					     		(3600 * Hour)
+
+
  //  RX  10       >>>   TX    
  //  TX  11       >>>   RX ci vuole un partitore di tensione da 5v a 3.3v
+
+enum
+{
+	MINIMUM_FUNC = 0,
+	NORMAL_FUNC = 1
+};
+
+enum
+{
+	MAIN_POWER = 0,
+	BATTERY
+};
 
 typedef struct
 {
@@ -35,13 +48,14 @@ typedef struct
 	int year;
 }TIME_DATE;
 
-Sim800l Sim800l;  
+Sim800L Gsm;  
 TIME_DATE Time;
 Chrono SendAlarmMessageTimer(Chrono::SECONDS);
-Chrono NoOpLedTimer;
+Chrono SwitchPower(Chrono::SECONDS);
 int TimerSms = 2;
 bool StopSms;
-volatile bool NoOperating = true;
+bool NoSignal;
+uint8_t PowerMode = MAIN_POWER;
 
 
 const char *TelephoneNumber [MAX_TELEPHONE_NUMBER] = 
@@ -79,7 +93,7 @@ void BlinkLed(int WichLed)
 
 String GetTime()
 {
-	Sim800l.RTCtime(&Time.day, &Time.month, &Time.year, &Time.hour, &Time.minute, &Time.second);
+	Gsm.RTCtime(&Time.day, &Time.month, &Time.year, &Time.hour, &Time.minute, &Time.second);
 	String TimeStr = String(Time.hour) + ":" + String(Time.minute) + ":" + String(Time.second) + "  " + String(Time.day) + "/" + String(Time.month) + "/" + String(Time.year);
 	return TimeStr;
 }
@@ -101,7 +115,7 @@ bool SendSms(String Text)
 	bool Sent = false, AllSent = true;
 	for(int i = 0; i < MAX_TELEPHONE_NUMBER; i++)
 	{
-		Sent = Sim800l.sendSms(TelephoneNumber[i], Text.c_str());
+		Sent = Gsm.sendSms(TelephoneNumber[i], Text.c_str());
 		if(!Sent)
 		{
 			AllSent = false;
@@ -116,7 +130,7 @@ bool SendSms(String Text)
 String ReadSms()
 {
 	String SmsTxt = "";
-	SmsTxt = Sim800l.readSms(1);   
+	SmsTxt = Gsm.readSms(1);   
 	return SmsTxt;
 }
 
@@ -137,37 +151,17 @@ bool StopSmsSend()
 		return true;
 }
 
-void ChangeOpMode()
-{
-	NoOperating = !NoOperating;
-	BlinkLed(BUTTON_PRESS_PIN);
-}
-
-void setup()
+void WaitForNetwork()
 {
 	int TestConnTimeOut = 200, PwmLedTestConn = 100;
-	digitalWrite(SIM800_SLEEP_PIN, SIM_SLEEP_OFF);
-	Serial.begin(9600);
-	Sim800l.begin(); 
-	Sim800l.updateRtc(2);  // UTC Roma
-	attachInterrupt(digitalPinToInterrupt(NOP_PIN), ChangeOpMode, RISING); 
-	pinMode(RED_LED, OUTPUT);
-	pinMode(GREEN_LED, OUTPUT);
-	pinMode(SIM800_SLEEP_PIN, OUTPUT);
-	pinMode(BUTTON_PRESS_PIN, OUTPUT);
-	
-	analogWrite(GREEN_LED, PWM_PERCENT(0));
-	analogWrite(RED_LED, PWM_PERCENT(0));
-	digitalWrite(SIM800_SLEEP_PIN, SIM_SLEEP_OFF);
-	digitalWrite(BUTTON_PRESS_PIN, LOW);
 	while(1)
 	{
-		if(Sim800l.getSignalQuality() != "99")
+		if(Gsm.signalQuality().indexOf("99") == -1)
 			break;
 		TestConnTimeOut--;
 		if(TestConnTimeOut == 0)
 		{
-			NoOperating = true;
+			NoSignal = true;
 			break;
 		}
 		analogWrite(GREEN_LED, PWM_PERCENT(PwmLedTestConn));
@@ -180,89 +174,75 @@ void setup()
 	}
 }
 
-void loop()
+
+void SwitchPowerMode()
 {
-	if(NoOperating)
+	if(PowerMode == MAIN_POWER)
 	{
-		
-		SendAlarmMessageTimer.restart();
-		if(NoOpLedTimer.hasPassed(2000, true))
+		if(!SwitchPower.isRunning())
+			SwitchPower.restart();
+		if(SwitchPower.hasPassed(POWER_DELAY(2), true))
 		{
-			for(int i  = 0; i < 5; i++)
-				BlinkFadedLed(GREEN_LED, PWM_PERCENT(100), 250);
+			digitalWrite(RELAY_SWICH, LOW);
+			PowerMode = BATTERY;
+			SwitchPower.stop();
 		}
-		else
-			analogWrite(GREEN_LED, PWM_PERCENT(0));
-		analogWrite(RED_LED, PWM_PERCENT(0));
 	}
 	else
 	{
-		NoOpLedTimer.restart();
-		int Voltage = (int)(roundf(GetVoltage()));
-		if(Voltage == 0)	
+		if(!SwitchPower.isRunning())
+			SwitchPower.restart();
+		if(SwitchPower.hasPassed(POWER_DELAY(1), true))
 		{
-			if(StopSmsSend() && !StopSms)
-			{
-				StopSms = true;
-			}
-			if(SendAlarmMessageTimer.hasPassed(TimerSms, true) && !StopSms)
-			{
-				if(SendSmsAlarm())
-					TimerSms = 1800;
-				else
-					TimerSms = 2;
-			}
-			analogWrite(GREEN_LED, PWM_PERCENT(0));
-			BlinkFadedLed(RED_LED, PWM_PERCENT(100), 250);
-		}	
-		else		
+			digitalWrite(RELAY_SWICH, HIGH);
+			PowerMode = MAIN_POWER;
+			SwitchPower.stop();
+		}		
+	}	
+}
+
+
+void setup()
+{
+	Serial.begin(9600);
+	Gsm.begin(9600); 
+	Gsm.updateRtc(2);  // UTC Roma
+	pinMode(RED_LED, OUTPUT);
+	pinMode(GREEN_LED, OUTPUT);
+	pinMode(RELAY_SWICH, OUTPUT);
+	digitalWrite(RELAY_SWICH, HIGH);
+	analogWrite(GREEN_LED, PWM_PERCENT(0));
+	analogWrite(RED_LED, PWM_PERCENT(0));
+	WaitForNetwork();
+	SwitchPower.start();
+}
+
+void loop()
+{
+	int Voltage = (int)(roundf(GetVoltage()));
+	if(Voltage == 0)	
+	{
+		if(StopSmsSend() && !StopSms)
 		{
-			SendAlarmMessageTimer.restart();
-			BlinkFadedLed(GREEN_LED, PWM_PERCENT(100),1000, 500, 0);
-			analogWrite(RED_LED, PWM_PERCENT(0));
+			StopSms = true;
 		}
+		if(SendAlarmMessageTimer.hasPassed(TimerSms, true) && !StopSms)
+		{
+			if(SendSmsAlarm())
+				TimerSms = 1800;
+			else
+				TimerSms = 2;
+		}
+		analogWrite(GREEN_LED, PWM_PERCENT(0));
+		BlinkFadedLed(RED_LED, PWM_PERCENT(100), 250);
+	}	
+	else		
+	{
+		SendAlarmMessageTimer.restart();
+		BlinkFadedLed(GREEN_LED, PWM_PERCENT(100),1000, 500, 0);
+		analogWrite(RED_LED, PWM_PERCENT(0));
 	}
 
+	// Se sono passate 2h distacchiamo la carica e andiamo a batteria per 1h
+	SwitchPowerMode();
 }
-
-/*
-String Sim800l::getSignalQuality(){
-// Response
-// +CSQ: <rssi>,<ber>Parameters
-// <rssi>
-// 0 -115 dBm or less
-// 1 -111 dBm
-// 2...30 -110... -54 dBm
-// 31 -52 dBm or greater
-// 99 not known or not detectable
-// <ber> (in percent):
-// 0...7 As RXQUAL values in the table in GSM 05.08 [20]
-// subclause 7.2.4
-// 99 Not known or not detectable 
-
-  SIM.print (F("AT+CSQ\r\n"));
-  String SignalQualityStr = String(_readSerial()), RSSI = "";
-  char SQBuff[SignalQualityStr.length()];
-  SignalQualityStr.toCharArray(SQBuff, SignalQualityStr.length());
-  for(int i = 0; i < SignalQualityStr.length(); i++)
-  {
-    if(SQBuff[i - 1] == ':')
-    {
-      for(int j = i; j < SignalQualityStr.length(); j++)
-      {
-        if(SQBuff[j] != ',')
-          RSSI += SQBuff[j];
-        else
-          break;
-      }
-      break;
-    }
-    else
-    {
-      continue;
-    }
-  }
-  Serial.println(SignalQualityStr);
-  return RSSI;
-}
-*/

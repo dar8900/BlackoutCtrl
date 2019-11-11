@@ -1,5 +1,7 @@
 //Programma per il controllo dei blackout
 
+// Link per libreria https://github.com/VittorioEsposito/Sim800L-Arduino-Library-revised.git
+
 #include <Sim800L.h>
 #include <SoftwareSerial.h>
 #include <Chrono.h>

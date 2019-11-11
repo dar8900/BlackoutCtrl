@@ -3,11 +3,12 @@
 #include <Sim800L.h>
 #include <SoftwareSerial.h>
 #include <Chrono.h>
+#include <EEPROM.h>
 
 #define NOP_PIN	 										   3
 #define RED_LED											   5
 #define GREEN_LED  										   6
-#define SIM800_SLEEP_PIN								   7
+#define RESET_EEPROM									   7
 
 #define BUTTON_PRESS_PIN								   8
 
@@ -16,11 +17,14 @@
 #define MAX_TELEPHONE_NUMBER	     					   1
 #define N_SAMPLE										 100
 
-#define PWM_PERCENT(Perc)								((int)(Perc * 255 / 100))
+#define PWM_PERCENT(Perc)		   ((int)(Perc * 255 / 100))
 
-#define TIMEOUT_DELAY(Sec, Cnt)								(Sec * 1000 / Cnt)
+#define TIMEOUT_DELAY(Sec, Cnt)			  (Sec * 1000 / Cnt)
 
-#define POWER_DELAY(Hour)					     		(3600 * Hour)
+#define POWER_DELAY(Hour)					   (3600 * Hour)
+
+#define LAST_ADDRESS_ADDR								   0
+#define ALARM_INIT_ADDR									   2
 
 
  //  RX  10       >>>   TX    
@@ -40,13 +44,19 @@ enum
 
 typedef struct
 {
-	int hour;
-	int minute;
-	int second;
-	int day;
-	int month;
-	int year;
+	uint8_t hour;
+	uint8_t minute;
+	uint8_t second;
+	uint8_t day;
+	uint8_t month;
+	uint8_t year;
 }TIME_DATE;
+
+typedef struct 
+{
+	TIME_DATE    AlarmTime;
+	uint8_t      PowerMode;
+}ALARM_DATA;
 
 Sim800L Gsm;  
 TIME_DATE Time;
@@ -55,7 +65,10 @@ Chrono SwitchPower(Chrono::SECONDS);
 int TimerSms = 2;
 bool StopSms;
 bool NoSignal;
+bool BlackoutAlarm = false;
 uint8_t PowerMode = MAIN_POWER;
+ALARM_DATA AlarmInfo;
+uint16_t LastAlarmAddr = ALARM_INIT_ADDR;
 
 
 const char *TelephoneNumber [MAX_TELEPHONE_NUMBER] = 
@@ -63,7 +76,7 @@ const char *TelephoneNumber [MAX_TELEPHONE_NUMBER] =
 	"+393336498423",
 };
 
-String SMSText = "BLACKOUT AVVENUTO";
+const String SMSText = "ALLARME BLACKOUT!";
 
 
 
@@ -93,7 +106,14 @@ void BlinkLed(int WichLed)
 
 String GetTime()
 {
-	Gsm.RTCtime(&Time.day, &Time.month, &Time.year, &Time.hour, &Time.minute, &Time.second);
+	int timedate[6];
+	Gsm.RTCtime(&timedate[0], &timedate[1], &timedate[2], &timedate[3], &timedate[4], &timedate[5]);
+	Time.day    = (uint8_t) timedate[0];
+	Time.month  = (uint8_t) timedate[1];
+	Time.year   = (uint8_t) (timedate[2] % 100);
+	Time.hour   = (uint8_t) timedate[3];
+	Time.minute = (uint8_t) timedate[4];
+	Time.second = (uint8_t) timedate[5];
 	String TimeStr = String(Time.hour) + ":" + String(Time.minute) + ":" + String(Time.second) + "  " + String(Time.day) + "/" + String(Time.month) + "/" + String(Time.year);
 	return TimeStr;
 }
@@ -138,14 +158,14 @@ String ReadSms()
 bool SendSmsAlarm()
 {
 	bool SMSSent = false;
-	String BOText = SMSText + GetTime();
+	String BOText = SMSText;// + GetTime();
 	SMSSent = SendSms(BOText);
 	return SMSSent;
 }
 
 bool StopSmsSend()
 {
-	if(ReadSms() != "ok")
+	if(ReadSms().indexOf("ok") == -1)
 		return false;
 	else
 		return true;
@@ -177,30 +197,82 @@ void WaitForNetwork()
 
 void SwitchPowerMode()
 {
-	if(PowerMode == MAIN_POWER)
+	if(!BlackoutAlarm)
 	{
-		if(!SwitchPower.isRunning())
-			SwitchPower.restart();
-		if(SwitchPower.hasPassed(POWER_DELAY(2), true))
+		if(PowerMode == MAIN_POWER)
+		{
+			if(!SwitchPower.isRunning())
+				SwitchPower.restart();
+			if(SwitchPower.hasPassed(POWER_DELAY(2), true))
+			{
+				digitalWrite(RELAY_SWICH, LOW);
+				PowerMode = BATTERY;
+				SwitchPower.stop();
+			}
+		}
+		else
+		{
+			if(!SwitchPower.isRunning())
+				SwitchPower.restart();
+			if(SwitchPower.hasPassed(POWER_DELAY(1), true))
+			{
+				digitalWrite(RELAY_SWICH, HIGH);
+				PowerMode = MAIN_POWER;
+				SwitchPower.stop();
+			}		
+		}	
+	}	
+	else
+	{
+		if(PowerMode != BATTERY)
 		{
 			digitalWrite(RELAY_SWICH, LOW);
 			PowerMode = BATTERY;
-			SwitchPower.stop();
-		}
+			SwitchPower.stop();	
+		}	
 	}
-	else
-	{
-		if(!SwitchPower.isRunning())
-			SwitchPower.restart();
-		if(SwitchPower.hasPassed(POWER_DELAY(1), true))
-		{
-			digitalWrite(RELAY_SWICH, HIGH);
-			PowerMode = MAIN_POWER;
-			SwitchPower.stop();
-		}		
-	}	
 }
 
+bool IsMainPowerOn()
+{
+	bool StillOn = true;
+	int Voltage = (int)(roundf(GetVoltage()));
+	if(Voltage <= 1)
+	{
+		if(!BlackoutAlarm)
+		{
+			GetTime();
+			AlarmInfo.AlarmTime = Time;
+			AlarmInfo.PowerMode = PowerMode;
+			EEPROM.put(LastAlarmAddr, AlarmInfo);
+			LastAlarmAddr += 7;
+			if(LastAlarmAddr >= EEPROM.length())
+				LastAlarmAddr = ALARM_INIT_ADDR;
+			EEPROM.put(LAST_ADDRESS_ADDR, LastAlarmAddr);
+		}
+		BlackoutAlarm = true;
+		StillOn = false;
+	}
+	else
+		BlackoutAlarm = false;
+	return StillOn;
+}
+
+void ResetEeprom(bool CheckButton)
+{
+	if(digitalRead(RESET_EEPROM) == HIGH || !CheckButton)
+	{
+		analogWrite(GREEN_LED, PWM_PERCENT(100));
+		analogWrite(RED_LED, PWM_PERCENT(100));
+		for(int i = 0; i < EEPROM.length(); i++)
+			EEPROM.update(i, 0);
+		LastAlarmAddr = ALARM_INIT_ADDR;
+		EEPROM.put(LAST_ADDRESS_ADDR, LastAlarmAddr);
+		delay(2000);
+		analogWrite(GREEN_LED, PWM_PERCENT(0));
+		analogWrite(RED_LED, PWM_PERCENT(0));
+	}
+}
 
 void setup()
 {
@@ -210,6 +282,14 @@ void setup()
 	pinMode(RED_LED, OUTPUT);
 	pinMode(GREEN_LED, OUTPUT);
 	pinMode(RELAY_SWICH, OUTPUT);
+	pinMode(RESET_EEPROM, INPUT);
+
+	if(EEPROM.read(0) == 0xFF && EEPROM.read(1) == 0xFF)
+		ResetEeprom(false);
+
+	EEPROM.get(LAST_ADDRESS_ADDR, LastAlarmAddr);
+	EEPROM.get(LastAlarmAddr, AlarmInfo);
+
 	digitalWrite(RELAY_SWICH, HIGH);
 	analogWrite(GREEN_LED, PWM_PERCENT(0));
 	analogWrite(RED_LED, PWM_PERCENT(0));
@@ -219,8 +299,16 @@ void setup()
 
 void loop()
 {
-	int Voltage = (int)(roundf(GetVoltage()));
-	if(Voltage == 0)	
+	if(IsMainPowerOn())	
+	{
+		SendAlarmMessageTimer.restart();
+		if(PowerMode == BATTERY)
+			BlinkFadedLed(GREEN_LED, PWM_PERCENT(50),1000, 500, 0);
+		else
+			BlinkFadedLed(GREEN_LED, PWM_PERCENT(100),1000, 500, 0);		
+		analogWrite(RED_LED, PWM_PERCENT(0));
+	}	
+	else		
 	{
 		if(StopSmsSend() && !StopSms)
 		{
@@ -234,15 +322,14 @@ void loop()
 				TimerSms = 2;
 		}
 		analogWrite(GREEN_LED, PWM_PERCENT(0));
-		BlinkFadedLed(RED_LED, PWM_PERCENT(100), 250);
-	}	
-	else		
-	{
-		SendAlarmMessageTimer.restart();
-		BlinkFadedLed(GREEN_LED, PWM_PERCENT(100),1000, 500, 0);
-		analogWrite(RED_LED, PWM_PERCENT(0));
+		if(PowerMode == BATTERY)
+			BlinkFadedLed(RED_LED, PWM_PERCENT(50), 250);
+		else
+			BlinkFadedLed(RED_LED, PWM_PERCENT(100), 250);		
 	}
 
 	// Se sono passate 2h distacchiamo la carica e andiamo a batteria per 1h
 	SwitchPowerMode();
+	ResetEeprom(true);
+
 }

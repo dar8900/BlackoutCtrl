@@ -61,7 +61,6 @@ typedef struct
 }ALARM_DATA;
 
 Sim800L Gsm;  
-TIME_DATE Time;
 Chrono SendAlarmMessageTimer(Chrono::SECONDS);
 Chrono SwitchPower(Chrono::SECONDS);
 int TimerSms = 2;
@@ -106,17 +105,18 @@ void BlinkLed(int WichLed)
 	delayMicroseconds(5000);	
 }
 
-String GetTime()
+String GetTime(TIME_DATE *Time)
 {
 	int timedate[6];
 	Gsm.RTCtime(&timedate[0], &timedate[1], &timedate[2], &timedate[3], &timedate[4], &timedate[5]);
-	Time.day    = (uint8_t) timedate[0];
-	Time.month  = (uint8_t) timedate[1];
-	Time.year   = (uint8_t) (timedate[2] % 100);
-	Time.hour   = (uint8_t) timedate[3];
-	Time.minute = (uint8_t) timedate[4];
-	Time.second = (uint8_t) timedate[5];
-	String TimeStr = String(Time.hour) + ":" + String(Time.minute) + ":" + String(Time.second) + "  " + String(Time.day) + "/" + String(Time.month) + "/" + String(Time.year);
+	Time->day    = (uint8_t) timedate[0];
+	Time->month  = (uint8_t) timedate[1];
+	Time->year   = (uint8_t) (timedate[2] % 100);
+	Time->hour   = (uint8_t) timedate[3];
+	Time->minute = (uint8_t) timedate[4];
+	Time->second = (uint8_t) timedate[5];
+	String TimeStr = String(Time->hour) + ":" + String(Time->minute) + ":" + String(Time->second) + "  "
+	 + String(Time->day) + "/" + String(Time->month) + "/" + String(Time->year);
 	return TimeStr;
 }
 
@@ -243,8 +243,7 @@ bool IsMainPowerOn()
 	{
 		if(!BlackoutAlarm)
 		{
-			GetTime();
-			AlarmInfo.AlarmTime = Time;
+			GetTime(&AlarmInfo.AlarmTime);
 			AlarmInfo.PowerMode = PowerMode;
 			EEPROM.put(LastAlarmAddr, AlarmInfo);
 			LastAlarmAddr += 7;

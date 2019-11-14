@@ -7,6 +7,8 @@
 #include <Chrono.h>
 #include <EEPROM.h>
 
+#define  TEST_COM	
+
 #define NOP_PIN	 										   3
 #define RED_LED											   5
 #define GREEN_LED  										   6
@@ -31,6 +33,9 @@
 
  //  RX  10       >>>   TX    
  //  TX  11       >>>   RX ci vuole un partitore di tensione da 5v a 3.3v
+#ifdef TEST_COM
+void TestComunication(void);
+#endif
 
 enum
 {
@@ -280,6 +285,9 @@ void setup()
 	Serial.begin(9600);
 	Gsm.begin(9600); 
 	Gsm.updateRtc(2);  // UTC Roma
+
+#ifndef TEST_COM	
+
 	pinMode(RED_LED, OUTPUT);
 	pinMode(GREEN_LED, OUTPUT);
 	pinMode(RELAY_SWICH, OUTPUT);
@@ -296,10 +304,19 @@ void setup()
 	analogWrite(RED_LED, PWM_PERCENT(0));
 	WaitForNetwork();
 	SwitchPower.start();
+#else
+	pinMode(RED_LED, OUTPUT);
+	pinMode(GREEN_LED, OUTPUT);
+	pinMode(RESET_EEPROM, INPUT);
+
+#endif	
 }
 
 void loop()
 {
+
+#ifndef TEST_COM	
+
 	if(IsMainPowerOn())	
 	{
 		SendAlarmMessageTimer.restart();
@@ -332,5 +349,34 @@ void loop()
 	// Se sono passate 2h distacchiamo la carica e andiamo a batteria per 1h
 	SwitchPowerMode();
 	ResetEeprom(true);
+#else
 
+	TestComunication();
+
+#endif
 }
+
+#ifdef TEST_COM
+
+void TestComunication()
+{
+	bool SmsSended = false;
+	if(digitalRead(RESET_EEPROM) == HIGH)
+	{
+		SmsSended = Gsm.sendSms(TelephoneNumber[0], "Hallo world!");
+		for(int i = 0; i < 5; i++)
+		{
+			if(SmsSended)
+				BlinkFadedLed(GREEN_LED, PWM_PERCENT(100), 50);
+			else
+				BlinkFadedLed(RED_LED, PWM_PERCENT(100), 50);
+		}
+	}
+	else
+	{
+		// BlinkFadedLed(RED_LED, PWM_PERCENT(100), 250);
+		BlinkFadedLed(GREEN_LED, PWM_PERCENT(100), 500);
+	}
+}
+
+#endif

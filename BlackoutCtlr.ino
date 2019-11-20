@@ -7,7 +7,9 @@
 #include <Chrono.h>
 #include <EEPROM.h>
 
-#define  TEST_COM	
+#define FW_VERSION									       1.0
+
+#define TEST_COM	
 
 #define NOP_PIN	 										   3
 #define RED_LED											   5

@@ -6,6 +6,17 @@
 #include <SoftwareSerial.h>
 #include <Chrono.h>
 #include <EEPROM.h>
+#include <stdint.h>
+
+#define DEBUG
+
+#ifdef DEBUG
+#define DBG(msg)			Serial.print(msg)
+#define DBG_NL(msg)			Serial.println(msg)
+#else
+#define DBG(msg)			
+#define DBG_NL(msg)			
+#endif
 
 #define FW_VERSION									       1.0
 

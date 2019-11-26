@@ -21,7 +21,8 @@
 #define RELAY_SWICH										   9
 
 #define MAX_TELEPHONE_NUMBER	     					   1
-#define N_SAMPLE										 100
+
+#define N_SAMPLE										 500 // Campiona per 50ms
 
 #define PWM_PERCENT(Perc)		   ((int)(Perc * 255 / 100))
 
@@ -212,7 +213,7 @@ void SwitchPowerMode()
 		{
 			if(!SwitchPower.isRunning())
 				SwitchPower.restart();
-			if(SwitchPower.hasPassed(POWER_DELAY(2), true))
+			if(SwitchPower.hasPassed(POWER_DELAY(2)))
 			{
 				digitalWrite(RELAY_SWICH, LOW);
 				PowerMode = BATTERY;
@@ -223,7 +224,7 @@ void SwitchPowerMode()
 		{
 			if(!SwitchPower.isRunning())
 				SwitchPower.restart();
-			if(SwitchPower.hasPassed(POWER_DELAY(1), true))
+			if(SwitchPower.hasPassed(POWER_DELAY(1)))
 			{
 				digitalWrite(RELAY_SWICH, HIGH);
 				PowerMode = MAIN_POWER;
